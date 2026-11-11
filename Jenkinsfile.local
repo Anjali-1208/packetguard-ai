@@ -1,0 +1,58 @@
+// Local Windows pipeline: tests + builds Docker images on this machine only.
+// Needs: Docker Desktop running, Jenkins on Windows (uses `bat`, not `sh`).
+pipeline {
+  agent any
+  options { timestamps(); disableConcurrentBuilds() }
+  parameters {
+    booleanParam(name: 'BUILD_ML_SNIFFER', defaultValue: false, description: 'Also build ml-service and sniffer images (slow: trains models)')
+    booleanParam(name: 'RUN_PYTHON_TESTS', defaultValue: false, description: 'Run pytest for ML + sniffer (slow on first run)')
+  }
+  environment {
+    TAG = "${env.BUILD_NUMBER}"
+  }
+  stages {
+    stage('Checkout') {
+      steps { checkout scm }
+    }
+
+    stage('Backend: lint & tests') {
+      steps {
+        bat 'docker run --rm -v "%WORKSPACE%/backend:/app" -w /app node:24-slim sh -c "npm install --no-audit --no-fund && node --check src/index.js && npm test"'
+      }
+    }
+
+    stage('Frontend: build') {
+      steps {
+        bat 'docker run --rm -v "%WORKSPACE%/frontend:/app" -w /app node:24-slim sh -c "npm install --no-audit --no-fund && npm run build"'
+      }
+    }
+
+    stage('Python tests') {
+      when { expression { params.RUN_PYTHON_TESTS } }
+      steps {
+        bat 'docker run --rm -v "%WORKSPACE%:/repo" -w /repo python:3.12-slim sh -c "apt-get update -qq && apt-get install -y -qq libgomp1 >/dev/null && pip install -q -r ml-service/requirements.txt flake8 && flake8 --select=E9,F63,F7,F82 shared sniffer ml-service && pytest -q tests"'
+      }
+    }
+
+    stage('Build Docker images') {
+      steps {
+        bat 'docker build -t packetguard-backend:%TAG% ./backend'
+        bat 'docker build -t packetguard-frontend:%TAG% ./frontend'
+        script {
+          if (params.BUILD_ML_SNIFFER) {
+            bat 'docker build -t packetguard-ml-service:%TAG% -f ml-service/Dockerfile .'
+            bat 'docker build -t packetguard-sniffer:%TAG% -f sniffer/Dockerfile .'
+          }
+        }
+      }
+    }
+
+    stage('List images') {
+      steps { bat 'docker images | findstr packetguard' }
+    }
+  }
+  post {
+    success { echo "Build ${env.BUILD_NUMBER} passed. Images tagged packetguard-*:${env.BUILD_NUMBER}" }
+    failure { echo 'Pipeline failed - open Console Output and read the last error.' }
+  }
+}
