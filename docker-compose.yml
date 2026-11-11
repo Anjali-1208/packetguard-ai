@@ -1,0 +1,120 @@
+name: packetguard
+
+x-restart: &restart
+  restart: unless-stopped
+
+services:
+  mongo:
+    image: mongo:7
+    <<: *restart
+    # single-node replica set: required for change streams (self-initialises via the healthcheck)
+    command: ["--replSet", "rs0", "--bind_ip_all"]
+    ports: ["27018:27017"]
+    volumes: ["mongo-data:/data/db"]
+    healthcheck:
+      test: ["CMD-SHELL", "mongosh --quiet --eval \"try { rs.status() } catch (e) { rs.initiate({_id:'rs0',members:[{_id:0,host:'mongo:27017'}]}) }; quit(db.hello().isWritablePrimary ? 0 : 1)\""]
+      interval: 5s
+      timeout: 10s
+      retries: 30
+      start_period: 5s
+
+  redpanda:
+    image: redpandadata/redpanda:v24.2.7
+    <<: *restart
+    command:
+      - redpanda
+      - start
+      - --mode=dev-container
+      - --smp=1
+      - --memory=768M
+      - --reserve-memory=0M
+      - --overprovisioned
+      - --node-id=0
+      - --kafka-addr=internal://0.0.0.0:9092
+      - --advertise-kafka-addr=internal://redpanda:9092
+    volumes: ["redpanda-data:/var/lib/redpanda/data"]
+    healthcheck:
+      test: ["CMD-SHELL", "rpk cluster health | grep -E 'Healthy:.+true' || exit 1"]
+      interval: 8s
+      timeout: 8s
+      retries: 20
+      start_period: 10s
+
+  ml-service:
+    image: packetguard/ml-service:latest
+    build:
+      context: .
+      dockerfile: ml-service/Dockerfile
+      args:
+        DATASET_CSV: ${DATASET_CSV:-}
+    <<: *restart
+    ports: ["8000:8000"]
+    environment:
+      KAFKA_BROKER: redpanda:9092
+      KAFKA_TOPIC: network-flows
+      MONGO_URL: mongodb://mongo:27017/packetguard?directConnection=true
+    depends_on:
+      mongo: { condition: service_healthy }
+      redpanda: { condition: service_healthy }
+
+  sniffer:
+    image: packetguard/sniffer:latest
+    build:
+      context: .
+      dockerfile: sniffer/Dockerfile
+    restart: "no"
+    environment:
+      SNIFFER_MODE: ${SNIFFER_MODE:-simulate}        # simulate | pcap | live
+      FLOWS_PER_MINUTE: ${FLOWS_PER_MINUTE:-100}
+      ATTACK_RATIO: ${ATTACK_RATIO:-0.30}
+      PCAP_FILE: /app/realpcap/capture.pcap
+      PCAP_LOOP: "false"
+      PCAP_PACE: "false"
+      KAFKA_BROKER: redpanda:9092
+      KAFKA_TOPIC: network-flows
+      MONGO_URL: mongodb://mongo:27017/packetguard?directConnection=true
+      CAPTURE_IFACE: ${CAPTURE_IFACE:-}
+    volumes:
+      - ./samples:/app/realpcap:ro
+    # for SNIFFER_MODE=live on Linux, uncomment:
+    # network_mode: host
+    # cap_add: [NET_ADMIN, NET_RAW]
+    depends_on:
+      mongo: { condition: service_healthy }
+      redpanda: { condition: service_healthy }
+
+  backend:
+    image: packetguard/backend:latest
+    build: ./backend
+    <<: *restart
+    environment:
+      PORT: 5000
+      MONGO_URL: mongodb://mongo:27017/packetguard?directConnection=true
+      JWT_SECRET: ${JWT_SECRET:-change-me-in-real-deployments}
+      DATABASE_URL: file:/data/packetguard.db
+      ML_URL: http://ml-service:8000
+      SNIFFER_URL: http://sniffer:8001
+      ABUSEIPDB_API_KEY: ${ABUSEIPDB_API_KEY:-}
+      SLACK_WEBHOOK_URL: ${SLACK_WEBHOOK_URL:-}
+      SMTP_HOST: ${SMTP_HOST:-}
+      SMTP_PORT: ${SMTP_PORT:-587}
+      SMTP_USER: ${SMTP_USER:-}
+      SMTP_PASS: ${SMTP_PASS:-}
+      ALERT_EMAIL_TO: ${ALERT_EMAIL_TO:-}
+      SEED_DEMO_USERS: ${SEED_DEMO_USERS:-true}
+    volumes: ["sqlite-data:/data"]
+    ports: ["5000:5000"]
+    depends_on:
+      mongo: { condition: service_healthy }
+
+  frontend:
+    image: packetguard/frontend:latest
+    build: ./frontend
+    <<: *restart
+    ports: ["3000:80"]
+    depends_on: [backend]
+
+volumes:
+  mongo-data:
+  redpanda-data:
+  sqlite-data:

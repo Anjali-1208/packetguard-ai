@@ -1,0 +1,26 @@
+apiVersion: v1
+kind: Namespace
+metadata: { name: packetguard }
+---
+apiVersion: v1
+kind: ConfigMap
+metadata: { name: packetguard-config, namespace: packetguard }
+data:
+  MONGO_URL: "mongodb://mongo:27017/packetguard?directConnection=true"
+  KAFKA_BROKER: "redpanda:9092"
+  KAFKA_TOPIC: "network-flows"
+  ML_URL: "http://ml-service:8000"
+  SNIFFER_URL: "http://sniffer:8001"
+  SNIFFER_MODE: "simulate"
+  FLOWS_PER_MINUTE: "100"
+  DATABASE_URL: "file:/data/packetguard.db"
+  SEED_DEMO_USERS: "true"
+---
+apiVersion: v1
+kind: Secret
+metadata: { name: packetguard-secrets, namespace: packetguard }
+type: Opaque
+stringData:
+  JWT_SECRET: "change-me-before-real-use"   # use `kubectl create secret` / sealed secrets in a real cluster
+  ABUSEIPDB_API_KEY: ""
+  SLACK_WEBHOOK_URL: ""

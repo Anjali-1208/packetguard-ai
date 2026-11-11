@@ -1,0 +1,61 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id             Int       @id @default(autoincrement())
+  name           String
+  email          String    @unique
+  passwordHash   String
+  role           String    @default("ANALYST") // ANALYST | ADMIN
+  status         String    @default("active")  // active | suspended
+  failedAttempts Int       @default(0)
+  lockedUntil    DateTime?
+  lastLogin      DateTime?
+  createdAt      DateTime  @default(now())
+  blockRules     BlockRule[]
+  refreshTokens  RefreshToken[]
+}
+
+model RefreshToken {
+  id        Int      @id @default(autoincrement())
+  tokenHash String   @unique
+  userId    Int
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  expiresAt DateTime
+  revoked   Boolean  @default(false)
+  createdAt DateTime @default(now())
+}
+
+model BlockRule {
+  id          Int      @id @default(autoincrement())
+  ip          String
+  reason      String
+  alertId     String   // Mongo ObjectId stored as string (no cross-database FK)
+  createdById Int
+  createdBy   User     @relation(fields: [createdById], references: [id])
+  active      Boolean  @default(true)
+  createdAt   DateTime @default(now())
+
+  @@index([active])
+  @@index([ip])
+}
+
+// Append-only: the application exposes no update/delete endpoint for this table.
+model AuditLog {
+  id        Int      @id @default(autoincrement())
+  actor     String
+  action    String
+  target    String
+  details   String   @default("{}")
+  timestamp DateTime @default(now())
+
+  @@index([timestamp])
+  @@index([actor])
+  @@index([action])
+}

@@ -1,0 +1,11 @@
+node_modules/
+dist/
+__pycache__/
+*.pyc
+.env
+ml-service/models/
+sniffer/samples/
+*.db
+.DS_Store
+samples/*.pcap
+samples/*.pcapngs
