@@ -10,6 +10,15 @@ sniffer ──flow JSON──▶ Redpanda ──▶ ml-service (XGBoost + Isolat
                                                                                          │ REST + WebSocket
                                                                                   React dashboard (:3000)
 ```
+## Tech stack
+| Layer | Technology |
+|---|---|
+| Packet capture | Python, Scapy |
+| Messaging | Redpanda (Kafka API) |
+| ML | XGBoost, Isolation Forest, SHAP, FastAPI |
+| Backend | Node.js, Express, Socket.io, Prisma (SQLite), MongoDB |
+| Frontend | React, Vite |
+| DevOps | Docker Compose, Kubernetes (Minikube), Jenkins |
 
 ## Run it (one command)
 
