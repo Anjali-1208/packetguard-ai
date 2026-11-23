@@ -114,3 +114,16 @@ Socket.io events: `new-alert`, `alert-updated`, `stats-updated` (≤1/s), `notif
 
 ## Known limitations
 Simulated block rules only (no enforcement). Synthetic default dataset. `live` capture inside Docker Desktop on macOS/Windows only sees the VM's traffic. Built and unit-tested piecewise; run `docker compose up --build` first and check `docker compose logs` if a service fails to start.
+
+
+## Run in the background
+
+To keep your terminal free instead of streaming every container's logs:
+
+```bash
+docker compose up -d --build     # build and start detached
+docker compose ps                # list running containers
+docker compose logs --tail 50    # last 50 log lines from all services
+docker compose logs -f backend   # follow one service (Ctrl+C stops the view only)
+docker compose down              # stop everything
+```
