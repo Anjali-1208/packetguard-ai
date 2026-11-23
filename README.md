@@ -139,3 +139,14 @@ docker compose down              # stop everything
 | mongo | 27018 | MongoDB (single-node replica set) |
 | redpanda | internal only | Kafka-compatible message broker |
 | sniffer | internal only | Traffic source (simulate, pcap or live) |
+
+
+## Troubleshooting
+
+| Problem | What to try |
+|---|---|
+| `port is already allocated` | Run `docker ps`, then `docker stop <container>` for whatever holds the port. |
+| First build looks stuck | `ml-service` trains its models during the build, which takes several minutes. |
+| No alerts on the dashboard | Wait about 30 seconds, then check `docker compose ps` and `docker compose logs ml-service`. |
+| A container keeps restarting | Run `docker compose logs <service>` and read the last error lines. |
+| Start completely fresh | `docker compose down -v` (this deletes the Mongo and SQLite volumes). |
