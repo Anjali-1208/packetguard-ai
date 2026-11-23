@@ -127,3 +127,15 @@ docker compose logs --tail 50    # last 50 log lines from all services
 docker compose logs -f backend   # follow one service (Ctrl+C stops the view only)
 docker compose down              # stop everything
 ```
+
+
+## Services and ports
+
+| Service | Host port | Purpose |
+|---|---|---|
+| frontend | 3000 | React dashboard (nginx) |
+| backend | 5000 | Express API and Socket.io |
+| ml-service | 8000 | FastAPI scoring service |
+| mongo | 27018 | MongoDB (single-node replica set) |
+| redpanda | internal only | Kafka-compatible message broker |
+| sniffer | internal only | Traffic source (simulate, pcap or live) |
