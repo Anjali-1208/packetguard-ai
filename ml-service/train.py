@@ -30,6 +30,7 @@ ALIASES = {
 
 
 def map_label(s: str):
+    """Convert raw dataset labels into standardized attack families."""
     s = str(s).strip().lower()
     if s == "benign": return "Benign"
     if s.startswith("dos"): return "DoS"
@@ -43,6 +44,7 @@ def map_label(s: str):
 
 
 def load_real(path, cap=30000):
+    """Load, clean, and prepare real network traffic data for model training."""
     import pandas as pd
     df = pd.read_csv(path, low_memory=False)
     df.columns = df.columns.str.strip().str.lower().str.replace(" ", "_")
