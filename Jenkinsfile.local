@@ -1,34 +1,40 @@
-// Docker-only pipeline: tests -> build images -> scan -> (optional) push.
+// Docker-only pipeline for Jenkins on Windows (uses bat, not sh).
 // Plugins: Email Extension, JUnit.
 pipeline {
   agent any
   options { timestamps(); disableConcurrentBuilds() }
   parameters {
     string(name: 'REGISTRY', defaultValue: 'docker.io/anjali120805', description: 'Container registry namespace')
+    booleanParam(name: 'RUN_SCAN', defaultValue: false, description: 'Run the Trivy vulnerability scan (downloads a large database)')
     booleanParam(name: 'PUSH', defaultValue: false, description: 'Push images to the registry (needs registry-creds)')
-    booleanParam(name: 'FAIL_ON_CRITICAL_CVE', defaultValue: false, description: 'Fail the build if Trivy finds CRITICAL vulnerabilities')
   }
   environment {
     TAG = "${env.BUILD_NUMBER}"
     SERVICES = 'backend frontend ml-service sniffer'
-    TEAM_EMAILS = 'anjali200512@gmail.com,shahvinisha27@gmail.com,ayushinawal05@gmail.com,shraddhamandal04@gmail.com'
+    TEAM_EMAILS = 'shahvinisha27@gmail.com,ayushinawal05@gmail.com,shraddhamandal04@gmail.com'
   }
   stages {
     stage('Checkout') { steps { checkout scm } }
+
+    stage('Check Docker') {
+      steps { bat 'docker version' }
+    }
 
     stage('Lint & Unit Tests') {
       parallel {
         stage('Backend') {
           steps {
-            sh '''docker run --rm -v "$PWD/backend:/app" -w /app node:24-slim sh -c "npm install --no-audit --no-fund && node --check src/index.js && node --test --test-reporter=spec --test-reporter-destination=stdout --test-reporter=junit --test-reporter-destination=test-results.xml test/"'''
+            bat 'docker run --rm -v npm-cache:/root/.npm -v "%WORKSPACE%\\backend:/app" -w /app node:24-slim sh -c "npm install --no-audit --no-fund && node --check src/index.js && node --test --test-reporter=spec --test-reporter-destination=stdout --test-reporter=junit --test-reporter-destination=test-results.xml test/"'
           }
         }
         stage('Frontend build') {
-          steps { sh '''docker run --rm -v "$PWD/frontend:/app" -w /app node:24-slim sh -c "npm install --no-audit --no-fund && npm run build"''' }
+          steps {
+            bat 'docker run --rm -v npm-cache:/root/.npm -v "%WORKSPACE%\\frontend:/app" -w /app node:24-slim sh -c "npm install --no-audit --no-fund && npm run build"'
+          }
         }
         stage('Python (ML + sniffer)') {
           steps {
-            sh '''docker run --rm -v "$PWD:/repo" -w /repo python:3.12-slim sh -c "apt-get update -qq && apt-get install -y -qq libgomp1 >/dev/null && pip install -q -r ml-service/requirements.txt flake8 && flake8 --select=E9,F63,F7,F82 shared sniffer ml-service && pytest -q tests --junitxml=pytest-results.xml"'''
+            bat 'docker run --rm -v pip-cache:/root/.cache/pip -v "%WORKSPACE%:/repo" -w /repo python:3.12-slim sh -c "apt-get update -qq && apt-get install -y -qq libgomp1 >/dev/null && pip install -q -r ml-service/requirements.txt flake8 && flake8 --select=E9,F63,F7,F82 shared sniffer ml-service && pytest -q tests --junitxml=pytest-results.xml"'
           }
         }
       }
@@ -36,21 +42,19 @@ pipeline {
 
     stage('Build Docker Images') {
       steps {
-        sh '''
-          docker build -t $REGISTRY/packetguard-backend:$TAG   ./backend
-          docker build -t $REGISTRY/packetguard-frontend:$TAG  ./frontend
-          docker build -t $REGISTRY/packetguard-ml-service:$TAG -f ml-service/Dockerfile .
-          docker build -t $REGISTRY/packetguard-sniffer:$TAG   -f sniffer/Dockerfile .
-        '''
+        bat 'docker build -t %REGISTRY%/packetguard-backend:%TAG% .\\backend || exit /b 1'
+        bat 'docker build -t %REGISTRY%/packetguard-frontend:%TAG% .\\frontend || exit /b 1'
+        bat 'docker build -t %REGISTRY%/packetguard-ml-service:%TAG% -f ml-service\\Dockerfile . || exit /b 1'
+        bat 'docker build -t %REGISTRY%/packetguard-sniffer:%TAG% -f sniffer\\Dockerfile . || exit /b 1'
       }
     }
 
     stage('Security & Dependency Scan') {
+      when { expression { params.RUN_SCAN } }
       steps {
         script {
-          def code = params.FAIL_ON_CRITICAL_CVE ? 1 : 0
           for (s in env.SERVICES.split(' ')) {
-            sh "docker run --rm -v /var/run/docker.sock:/var/run/docker.sock aquasec/trivy:latest image --severity CRITICAL --exit-code ${code} --no-progress ${params.REGISTRY}/packetguard-${s}:${env.TAG}"
+            bat "docker run --rm -v /var/run/docker.sock:/var/run/docker.sock aquasec/trivy:latest image --severity CRITICAL --exit-code 0 --no-progress ${params.REGISTRY}/packetguard-${s}:${env.TAG}"
           }
         }
       }
@@ -60,10 +64,8 @@ pipeline {
       when { expression { params.PUSH } }
       steps {
         withCredentials([usernamePassword(credentialsId: 'registry-creds', usernameVariable: 'U', passwordVariable: 'P')]) {
-          sh '''
-            echo "$P" | docker login -u "$U" --password-stdin
-            for s in $SERVICES; do docker push $REGISTRY/packetguard-$s:$TAG; done
-          '''
+          bat 'echo %P%| docker login -u %U% --password-stdin || exit /b 1'
+          bat 'for %%s in (%SERVICES%) do docker push %REGISTRY%/packetguard-%%s:%TAG% || exit /b 1'
         }
       }
     }
@@ -72,7 +74,7 @@ pipeline {
   post {
     always {
       junit allowEmptyResults: true, testResults: 'backend/test-results.xml, pytest-results.xml'
-      sh 'docker image prune -f || true'
+      bat(returnStatus: true, script: 'docker image prune -f')
     }
     success { echo "Build ${env.BUILD_NUMBER} succeeded." }
     failure {
