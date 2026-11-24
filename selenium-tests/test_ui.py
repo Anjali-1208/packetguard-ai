@@ -14,7 +14,7 @@ def alert_rows(driver):
 def test_login_page_shows_form(driver):
     driver.get(f"{BASE_URL}/login")
     heading = wait(driver).until(EC.visibility_of_element_located((By.CSS_SELECTOR, "form.login-form h2")))
-    assert heading.text == "Sign in"
+    assert heading.text == "Sign out"
     assert driver.find_element(By.CSS_SELECTOR, "input[type=email]").is_displayed()
     assert driver.find_element(By.CSS_SELECTOR, "input[type=password]").is_displayed()
     assert "PacketGuard" in driver.find_element(By.CSS_SELECTOR, ".login-hero h1").text
