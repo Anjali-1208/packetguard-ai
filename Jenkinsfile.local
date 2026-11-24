@@ -1,60 +1,133 @@
-// Local Windows pipeline: tests + builds Docker images on this machine only.
-// Needs: Docker Desktop running, Jenkins on Windows (uses `bat`, not `sh`).
-// Sources are mounted read-only and copied inside the container to avoid
-// Windows permission errors (EACCES) when npm/pip write files.
+// Declarative pipeline. Agent needs: Docker CLI (daemon access), kubectl (with a kubeconfig credential).
+// Jenkins credentials expected: 'registry-creds' (username/password), 'kubeconfig' (secret file).
+// Plugins: Email Extension, JUnit.
 pipeline {
   agent any
   options { timestamps(); disableConcurrentBuilds() }
   parameters {
-    booleanParam(name: 'BUILD_ML_SNIFFER', defaultValue: false, description: 'Also build ml-service and sniffer images (slow: trains models)')
-    booleanParam(name: 'RUN_PYTHON_TESTS', defaultValue: false, description: 'Run pytest for ML + sniffer (slow on first run)')
+    string(name: 'REGISTRY', defaultValue: 'docker.io/your-user', description: 'Container registry namespace')
+    booleanParam(name: 'DEPLOY', defaultValue: true, description: 'Deploy to Kubernetes after push')
+    booleanParam(name: 'FAIL_ON_CRITICAL_CVE', defaultValue: false, description: 'Fail the build if Trivy finds CRITICAL vulnerabilities')
   }
   environment {
     TAG = "${env.BUILD_NUMBER}"
+    SERVICES = 'backend frontend ml-service sniffer'
+    TEAM_EMAILS = 'member1@gmail.com,member2@gmail.com,member3@gmail.com,member4@gmail.com'
   }
   stages {
-    stage('Checkout') {
-      steps { checkout scm }
-    }
+    stage('Checkout') { steps { checkout scm } }
 
-    stage('Backend: lint & tests') {
-      steps {
-        bat 'docker run --rm -v "%WORKSPACE%/backend:/src:ro" -w /app node:24-slim sh -c "cp -r /src/. /app/ && npm install --no-audit --no-fund && node --check src/index.js && npm test"'
-      }
-    }
-
-    stage('Frontend: build') {
-      steps {
-        bat 'docker run --rm -v "%WORKSPACE%/frontend:/src:ro" -w /app node:24-slim sh -c "cp -r /src/. /app/ && npm install --no-audit --no-fund && npm run build"'
-      }
-    }
-
-    stage('Python tests') {
-      when { expression { params.RUN_PYTHON_TESTS } }
-      steps {
-        bat 'docker run --rm -v "%WORKSPACE%:/src:ro" -w /repo python:3.12-slim sh -c "cp -r /src/. /repo/ && apt-get update -qq && apt-get install -y -qq libgomp1 >/dev/null && pip install -q -r ml-service/requirements.txt flake8 && flake8 --select=E9,F63,F7,F82 shared sniffer ml-service && pytest -q tests"'
-      }
-    }
-
-    stage('Build Docker images') {
-      steps {
-        bat 'docker build -t packetguard-backend:%TAG% ./backend'
-        bat 'docker build -t packetguard-frontend:%TAG% ./frontend'
-        script {
-          if (params.BUILD_ML_SNIFFER) {
-            bat 'docker build -t packetguard-ml-service:%TAG% -f ml-service/Dockerfile .'
-            bat 'docker build -t packetguard-sniffer:%TAG% -f sniffer/Dockerfile .'
+    stage('Lint & Unit Tests') {
+      parallel {
+        stage('Backend') {
+          steps {
+            sh '''docker run --rm -v "$PWD/backend:/app" -w /app node:24-slim sh -c "npm install --no-audit --no-fund && node --check src/index.js && node --test --test-reporter=spec --test-reporter-destination=stdout --test-reporter=junit --test-reporter-destination=test-results.xml test/"'''
+          }
+        }
+        stage('Frontend build') {
+          steps { sh '''docker run --rm -v "$PWD/frontend:/app" -w /app node:24-slim sh -c "npm install --no-audit --no-fund && npm run build"''' }
+        }
+        stage('Python (ML + sniffer)') {
+          steps {
+            sh '''docker run --rm -v "$PWD:/repo" -w /repo python:3.12-slim sh -c "apt-get update -qq && apt-get install -y -qq libgomp1 >/dev/null && pip install -q -r ml-service/requirements.txt flake8 && flake8 --select=E9,F63,F7,F82 shared sniffer ml-service && pytest -q tests --junitxml=pytest-results.xml"'''
           }
         }
       }
     }
 
-    stage('List images') {
-      steps { bat 'docker images | findstr packetguard' }
+    stage('Build Docker Images') {
+      steps {
+        sh '''
+          docker build -t $REGISTRY/packetguard-backend:$TAG   ./backend
+          docker build -t $REGISTRY/packetguard-frontend:$TAG  ./frontend
+          docker build -t $REGISTRY/packetguard-ml-service:$TAG -f ml-service/Dockerfile .
+          docker build -t $REGISTRY/packetguard-sniffer:$TAG   -f sniffer/Dockerfile .
+        '''
+      }
+    }
+
+    stage('Security & Dependency Scan') {
+      steps {
+        script {
+          def code = params.FAIL_ON_CRITICAL_CVE ? 1 : 0
+          for (s in env.SERVICES.split(' ')) {
+            sh "docker run --rm -v /var/run/docker.sock:/var/run/docker.sock aquasec/trivy:latest image --severity CRITICAL --exit-code ${code} --no-progress ${params.REGISTRY}/packetguard-${s}:${env.TAG}"
+          }
+        }
+      }
+    }
+
+    stage('Push to Registry') {
+      steps {
+        withCredentials([usernamePassword(credentialsId: 'registry-creds', usernameVariable: 'U', passwordVariable: 'P')]) {
+          sh '''
+            echo "$P" | docker login -u "$U" --password-stdin
+            for s in $SERVICES; do docker push $REGISTRY/packetguard-$s:$TAG; done
+          '''
+        }
+      }
+    }
+
+    stage('Deploy to Kubernetes') {
+      when { expression { params.DEPLOY } }
+      steps {
+        withCredentials([file(credentialsId: 'kubeconfig', variable: 'KUBECONFIG')]) {
+          sh '''
+            kubectl apply -f k8s/00-namespace-config.yaml -f k8s/10-data.yaml -f k8s/20-apps.yaml
+            kubectl -n packetguard set image deploy/backend    backend=$REGISTRY/packetguard-backend:$TAG
+            kubectl -n packetguard set image deploy/frontend   frontend=$REGISTRY/packetguard-frontend:$TAG
+            kubectl -n packetguard set image deploy/ml-service ml-service=$REGISTRY/packetguard-ml-service:$TAG
+            kubectl -n packetguard set image deploy/sniffer    sniffer=$REGISTRY/packetguard-sniffer:$TAG
+            for d in backend frontend ml-service sniffer; do kubectl -n packetguard rollout status deploy/$d --timeout=300s; done
+          '''
+        }
+      }
+    }
+
+    stage('Smoke Test') {
+      when { expression { params.DEPLOY } }
+      steps {
+        withCredentials([file(credentialsId: 'kubeconfig', variable: 'KUBECONFIG')]) {
+          sh '''
+            kubectl -n packetguard run smoke-$BUILD_NUMBER --rm -i --restart=Never --image=curlimages/curl -- \
+              sh -c "curl -fsS http://backend:5000/health && curl -fsS http://ml-service:8000/health && curl -fsS http://frontend/health"
+          '''
+        }
+      }
     }
   }
+
   post {
-    success { echo "Build ${env.BUILD_NUMBER} passed. Images tagged packetguard-*:${env.BUILD_NUMBER}" }
-    failure { echo 'Pipeline failed - open Console Output and read the last error.' }
+    always {
+      junit allowEmptyResults: true, testResults: 'backend/test-results.xml, pytest-results.xml'
+      sh 'docker image prune -f || true'
+    }
+    success { echo "Build ${env.BUILD_NUMBER} succeeded." }
+    failure {
+      emailext(
+        to: "${env.TEAM_EMAILS}",
+        subject: "FAILED: PacketGuard build #${env.BUILD_NUMBER}",
+        mimeType: 'text/html',
+        attachLog: true,
+        compressLog: true,
+        body: """
+          <h3>PacketGuard AI: build #${env.BUILD_NUMBER} FAILED</h3>
+          <p><b>Job:</b> ${env.JOB_NAME}</p>
+          <p><b>Tests:</b> \${TEST_COUNTS}</p>
+          <p><b>Failed tests:</b><br><pre>\${FAILED_TESTS}</pre></p>
+          <p><a href="${env.BUILD_URL}console">Open console log</a> |
+             <a href="${env.BUILD_URL}testReport">Open test report</a></p>
+          <p>The build log is attached.</p>
+        """
+      )
+    }
+    fixed {
+      emailext(
+        to: "${env.TEAM_EMAILS}",
+        subject: "FIXED: PacketGuard build #${env.BUILD_NUMBER} is passing again",
+        mimeType: 'text/html',
+        body: "<p>Build #${env.BUILD_NUMBER} passed. <a href='${env.BUILD_URL}'>Open build</a></p>"
+      )
+    }
   }
 }
