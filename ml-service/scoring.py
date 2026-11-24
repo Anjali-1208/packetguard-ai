@@ -29,16 +29,25 @@ class ScoreOut(BaseModel):
     modelVersion: str
 
 
+
 class Scorer:
     def __init__(self, model_dir: str = MODEL_DIR):
+        # Load model metadata, including attack labels and model version.
         meta = json.load(open(os.path.join(model_dir, "labels.json")))
         self.classes = meta["classes"]; self.version = meta["version"]
         self.benign_idx = self.classes.index("Benign")
+
+        # Load trained models and the feature scaler used during training.
         self.clf = joblib.load(os.path.join(model_dir, "model_supervised.pkl"))
         self.iso = joblib.load(os.path.join(model_dir, "model_anomaly.pkl"))
         self.scaler = joblib.load(os.path.join(model_dir, "scaler.pkl"))
+
+        # Initialize SHAP to explain the supervised model's predictions.
         self.explainer = shap.TreeExplainer(self.clf)
+
+        # Load saved model evaluation metrics for performance monitoring.
         self.metrics = json.load(open(os.path.join(model_dir, "metrics.json")))
+
 
     # ---- helpers -------------------------------------------------------
     def _shap_for(self, X, idx):
