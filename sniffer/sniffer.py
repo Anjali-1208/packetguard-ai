@@ -31,6 +31,8 @@ IFACE = os.environ.get("CAPTURE_IFACE", None)
 stats = {"mode": MODE, "published": 0, "dropped": 0, "malformed": 0, "lastFlow": None, "status": "starting"}
 producer = None; mongo = None
 
+# Initialize the Redpanda producer and MongoDB connection
+# required for storing and publishing network flow events.
 
 def connect():
     global producer, mongo
@@ -55,6 +57,7 @@ def publish(ev: dict, truth: str | None = None):
         flow_id = str(mongo.flows.insert_one(doc).inserted_id)
     except Exception as e:
         log.warning("mongo write failed (flow still published): %s", e)
+            # Prepare the flow event with extracted network features for Redpanda.
     msg = {"flowId": flow_id, "srcIp": ev["srcIp"], "dstIp": ev["dstIp"], "srcPort": ev["srcPort"],
            "dstPort": ev["dstPort"], "protocol": ev["protocol"], "features": [feats[f] for f in FEATURES]}
     try:
@@ -76,7 +79,7 @@ DPORTS = {"DoS": [80, 443], "DDoS": [80, 443, 53], "PortScan": None, "BruteForce
 ATTACK_MIX = ["DoS", "DDoS", "PortScan", "BruteForce", "WebAttack", "Botnet", "Infiltration", "Novel"]
 ATTACK_P = [0.14, 0.2, 0.16, 0.12, 0.12, 0.1, 0.08, 0.08]
 
-
+# Generate simulated network events for different attack types and benign traffic.
 def sim_event(kind, rng, src=None, dport=None):
     f = make_flow(kind, rng)
     proto = {6: "TCP", 17: "UDP", 1: "ICMP"}[int(f["protocol"])]
@@ -107,6 +110,7 @@ def run_simulate():
 
 
 # --------------------------------------------------------------------------- pcap / live
+# Extract network information and protocol details from captured packets.
 def packet_fields(pkt):
     from scapy.layers.inet import IP, TCP, UDP, ICMP
     from scapy.layers.inet6 import IPv6
@@ -118,7 +122,7 @@ def packet_fields(pkt):
     if pkt.haslayer(ICMP): return src, dst, 0, 0, "ICMP", len(pkt), 0
     return None
 
-
+# Process captured packets and update the corresponding network flow records.
 def handle_packet(table, pkt):
     try:
         fields = packet_fields(pkt)
@@ -127,7 +131,7 @@ def handle_packet(table, pkt):
     except Exception as e:  # malformed packets are dropped and logged, never fatal
         stats["malformed"] += 1; log.warning("dropped malformed packet: %s", e)
 
-
+# Replay packets from a PCAP file and convert them into network flow events.
 def run_pcap():
     from scapy.utils import PcapReader
     while True:
@@ -142,7 +146,7 @@ def run_pcap():
         if not PCAP_LOOP: log.info("replay finished"); producer.flush(10); return
         time.sleep(3)
 
-
+# Capture live network traffic and periodically publish completed flows.
 def run_live():
     from scapy.sendrecv import sniff
     table = FlowTable(); log.info("live capture on %s", IFACE or "default interface")
