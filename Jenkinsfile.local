@@ -49,6 +49,23 @@ pipeline {
       }
     }
 
+    stage('UI Tests (Selenium)') {
+      steps {
+        bat 'docker compose -p pgci -f docker-compose.yml -f docker-compose.ci.yml up -d --build --wait --wait-timeout 600'
+        bat 'docker build -t pg-selenium -f selenium-tests\\Dockerfile selenium-tests'
+        bat(returnStatus: true, script: 'docker rm -f pg-selenium-run')
+        script {
+          def rc = bat(returnStatus: true, script: 'docker run --name pg-selenium-run --network pgci_default -e BASE_URL=http://frontend pg-selenium')
+          bat(returnStatus: true, script: 'if exist selenium-out rmdir /s /q selenium-out')
+          bat(returnStatus: true, script: 'mkdir selenium-out')
+          bat(returnStatus: true, script: 'docker cp pg-selenium-run:/tests/results selenium-out\\results')
+          bat(returnStatus: true, script: 'docker cp pg-selenium-run:/tests/screenshots selenium-out\\screenshots')
+          bat(returnStatus: true, script: 'docker rm -f pg-selenium-run')
+          if (rc != 0) { error("Selenium UI tests failed (exit code ${rc})") }
+        }
+      }
+    }
+
     stage('Security & Dependency Scan') {
       when { expression { params.RUN_SCAN } }
       steps {
@@ -73,7 +90,9 @@ pipeline {
 
   post {
     always {
-      junit allowEmptyResults: true, testResults: 'backend/test-results.xml, pytest-results.xml'
+      junit allowEmptyResults: true, testResults: 'backend/test-results.xml, pytest-results.xml, selenium-out/results/selenium-results.xml'
+      archiveArtifacts artifacts: 'selenium-out/screenshots/**', allowEmptyArchive: true
+      bat(returnStatus: true, script: 'docker compose -p pgci -f docker-compose.yml -f docker-compose.ci.yml down -v')
       bat(returnStatus: true, script: 'docker image prune -f')
     }
     success { echo "Build ${env.BUILD_NUMBER} succeeded." }
@@ -84,6 +103,7 @@ pipeline {
         mimeType: 'text/html',
         attachLog: true,
         compressLog: true,
+        attachmentsPattern: 'selenium-out/screenshots/*.png',
         body: """
           <h3>PacketGuard AI: build #${env.BUILD_NUMBER} FAILED</h3>
           <p><b>Job:</b> ${env.JOB_NAME}</p>
@@ -91,7 +111,7 @@ pipeline {
           <p><b>Failed tests:</b><br><pre>\${FAILED_TESTS}</pre></p>
           <p><a href="${env.BUILD_URL}console">Open console log</a> |
              <a href="${env.BUILD_URL}testReport">Open test report</a></p>
-          <p>The build log is attached.</p>
+          <p>The build log is attached. Selenium failure screenshots are attached if a UI test failed.</p>
         """
       )
     }

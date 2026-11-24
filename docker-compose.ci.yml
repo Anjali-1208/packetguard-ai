@@ -1,0 +1,9 @@
+services:
+  mongo:
+    ports: !reset []
+  ml-service:
+    ports: !reset []
+  backend:
+    ports: !reset []
+  frontend:
+    ports: !reset []
