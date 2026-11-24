@@ -1,12 +1,10 @@
 generator client {
   provider = "prisma-client-js"
 }
-
 datasource db {
   provider = "sqlite"
   url      = env("DATABASE_URL")
 }
-
 model User {
   id             Int       @id @default(autoincrement())
   name           String
@@ -21,7 +19,6 @@ model User {
   blockRules     BlockRule[]
   refreshTokens  RefreshToken[]
 }
-
 model RefreshToken {
   id        Int      @id @default(autoincrement())
   tokenHash String   @unique
@@ -31,7 +28,6 @@ model RefreshToken {
   revoked   Boolean  @default(false)
   createdAt DateTime @default(now())
 }
-
 model BlockRule {
   id          Int      @id @default(autoincrement())
   ip          String
@@ -45,7 +41,6 @@ model BlockRule {
   @@index([active])
   @@index([ip])
 }
-
 // Append-only: the application exposes no update/delete endpoint for this table.
 model AuditLog {
   id        Int      @id @default(autoincrement())

@@ -21,7 +21,6 @@ app.use(helmet());
 app.use(cors({ origin: config.frontendOrigin, credentials: true }));
 app.use(express.json({ limit: "100kb" }));
 app.use(cookieParser());
-
 app.get("/health", (_req, res) => res.json({ status: "ok", mongo: mongoose.connection.readyState === 1 }));
 app.use("/api/auth", authRoutes);
 app.use("/api/alerts", alertRoutes);
