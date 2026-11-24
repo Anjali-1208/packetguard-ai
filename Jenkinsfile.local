@@ -1,18 +1,17 @@
-// Declarative pipeline. Agent needs: Docker CLI (daemon access), kubectl (with a kubeconfig credential).
-// Jenkins credentials expected: 'registry-creds' (username/password), 'kubeconfig' (secret file).
+// Docker-only pipeline: tests -> build images -> scan -> (optional) push.
 // Plugins: Email Extension, JUnit.
 pipeline {
   agent any
   options { timestamps(); disableConcurrentBuilds() }
   parameters {
-    string(name: 'REGISTRY', defaultValue: 'docker.io/your-user', description: 'Container registry namespace')
-    booleanParam(name: 'DEPLOY', defaultValue: true, description: 'Deploy to Kubernetes after push')
+    string(name: 'REGISTRY', defaultValue: 'docker.io/anjali120805', description: 'Container registry namespace')
+    booleanParam(name: 'PUSH', defaultValue: false, description: 'Push images to the registry (needs registry-creds)')
     booleanParam(name: 'FAIL_ON_CRITICAL_CVE', defaultValue: false, description: 'Fail the build if Trivy finds CRITICAL vulnerabilities')
   }
   environment {
     TAG = "${env.BUILD_NUMBER}"
     SERVICES = 'backend frontend ml-service sniffer'
-    TEAM_EMAILS = 'member1@gmail.com,member2@gmail.com,member3@gmail.com,member4@gmail.com'
+    TEAM_EMAILS = 'anjali200512@gmail.com,shahvinisha27@gmail.com,ayushinawal05@gmail.com,shraddhamandal04@gmail.com'
   }
   stages {
     stage('Checkout') { steps { checkout scm } }
@@ -58,39 +57,12 @@ pipeline {
     }
 
     stage('Push to Registry') {
+      when { expression { params.PUSH } }
       steps {
         withCredentials([usernamePassword(credentialsId: 'registry-creds', usernameVariable: 'U', passwordVariable: 'P')]) {
           sh '''
             echo "$P" | docker login -u "$U" --password-stdin
             for s in $SERVICES; do docker push $REGISTRY/packetguard-$s:$TAG; done
-          '''
-        }
-      }
-    }
-
-    stage('Deploy to Kubernetes') {
-      when { expression { params.DEPLOY } }
-      steps {
-        withCredentials([file(credentialsId: 'kubeconfig', variable: 'KUBECONFIG')]) {
-          sh '''
-            kubectl apply -f k8s/00-namespace-config.yaml -f k8s/10-data.yaml -f k8s/20-apps.yaml
-            kubectl -n packetguard set image deploy/backend    backend=$REGISTRY/packetguard-backend:$TAG
-            kubectl -n packetguard set image deploy/frontend   frontend=$REGISTRY/packetguard-frontend:$TAG
-            kubectl -n packetguard set image deploy/ml-service ml-service=$REGISTRY/packetguard-ml-service:$TAG
-            kubectl -n packetguard set image deploy/sniffer    sniffer=$REGISTRY/packetguard-sniffer:$TAG
-            for d in backend frontend ml-service sniffer; do kubectl -n packetguard rollout status deploy/$d --timeout=300s; done
-          '''
-        }
-      }
-    }
-
-    stage('Smoke Test') {
-      when { expression { params.DEPLOY } }
-      steps {
-        withCredentials([file(credentialsId: 'kubeconfig', variable: 'KUBECONFIG')]) {
-          sh '''
-            kubectl -n packetguard run smoke-$BUILD_NUMBER --rm -i --restart=Never --image=curlimages/curl -- \
-              sh -c "curl -fsS http://backend:5000/health && curl -fsS http://ml-service:8000/health && curl -fsS http://frontend/health"
           '''
         }
       }
