@@ -37,23 +37,18 @@ docker compose up --build
 - Docker Compose V2
 
 ### Start the application
-
 Open PowerShell in the project root directory and run:
-
 ```powershell
 docker compose up --build
 ```
-
 Wait for the services to initialize.
 
 ### Verify running services
-
 Open a second terminal and execute:
 
 ```powershell
 docker compose ps
 ```
-
 The application consists of six services:
 - MongoDB – Network traffic and alert storage
 - Redpanda – Real-time event streaming
@@ -61,7 +56,6 @@ The application consists of six services:
 - Sniffer – Network traffic collection
 - Backend – REST APIs and real-time communication
 - Frontend – Interactive security dashboard
-
 ### Access the dashboard
 
 Open http://localhost:3000
@@ -69,7 +63,6 @@ Open http://localhost:3000
 Demo Analyst:
 - Email: analyst@packetguard.local
 - Password: Analyst123
-
 Demo Administrator:
 - Email: admin@packetguard.local
 - Password: Admin123
@@ -81,7 +74,6 @@ docker compose down
 ```
 
 To inspect service logs:
-
 ```powershell
 docker compose logs -f
 ```
@@ -89,7 +81,6 @@ docker compose logs -f
 
 The first build takes several minutes: it installs dependencies and **trains the models inside the ml-service image**.
 When the logs settle, open **http://localhost:3000** — alerts begin appearing within ~30 seconds.
-
 | Role | Email | Password |
 |---|---|---|
 | Analyst | `analyst@packetguard.local` | `Analyst123` |
@@ -98,7 +89,6 @@ When the logs settle, open **http://localhost:3000** — alerts begin appearing 
 (Demo accounts are seeded only when the user table is empty; set `SEED_DEMO_USERS=false` to disable.)
 
 Stop: `docker compose down` (add `-v` to wipe data).
-
 ## Demo script (matches SDD §11.9)
 1. Sign in as analyst → Dashboard shows live counts and the alert feed.
 2. Open a **critical** alert → read the SHAP bars ("why was this flagged?"), threat-intel panel, raw flow features.
@@ -107,7 +97,6 @@ Stop: `docker compose down` (add `-v` to wipe data).
 5. Admin → *Pipeline & model* shows service health, metrics and the confusion matrix; *Detection thresholds* changes severity cut-offs (picked up by the ML service in ~15 s); *Audit log* shows every verdict and decision.
 
 Look for alerts labelled **"Anomalous traffic"** — these come from the Isolation Forest alone (the simulator periodically emits an exfiltration-like family the classifier was never trained on).
-
 ## Traffic sources (`SNIFFER_MODE` in `.env`)
 * `simulate` (default) — synthetic CICFlowMeter-style flows with random attack campaigns; no files needed. Tune with `FLOWS_PER_MINUTE`, `ATTACK_RATIO`.
 * `pcap` — replays `sniffer/samples/demo.pcap` (generated at image build: benign web sessions + port scan + SYN flood) through the real Scapy flow assembler. Use your own file by mounting it and setting `PCAP_FILE`.
@@ -172,3 +161,45 @@ Socket.io events: `new-alert`, `alert-updated`, `stats-updated` (≤1/s), `notif
 
 ## Known limitations
 Simulated block rules only (no enforcement). Synthetic default dataset. `live` capture inside Docker Desktop on macOS/Windows only sees the VM's traffic. Built and unit-tested piecewise; run `docker compose up --build` first and check `docker compose logs` if a service fails to start.
+
+## Testing the API with Postman
+
+A ready-made collection is included: `PacketGuard_Postman_CRUD_Collection.json`.
+
+### Setup
+1. Start the stack: `docker compose up -d --build` and confirm http://localhost:5000/health responds.
+2. In Postman, click **Import** and select `PacketGuard_Postman_CRUD_Collection.json`.
+3. Create an environment named `PacketGuard Local` with these variables, then select it:
+
+| Variable | Value |
+|---|---|
+| `baseUrl` | `http://localhost:5000` |
+| `token` | *(filled automatically after login)* |
+| `alertId` | *(set from List alerts)* |
+| `ruleId` | *(set from List rules)* |
+
+### Authenticate
+Send **Auth → Login - Analyst demo** (`analyst@packetguard.local` / `Analyst123`). The response contains `accessToken`. To save it automatically, add this under the request's **Scripts → Post-response**:
+
+```javascript
+const res = pm.response.json();
+pm.environment.set("token", res.accessToken);
+```
+
+Access tokens expire after 15 minutes (`expiresIn: 900`). Log in again if you get `401`.
+
+### Alert lifecycle
+1. **READ - List alerts** and copy an alert `id` into `alertId`.
+2. **UPDATE - Alert status** with body `{ "status": "acknowledged" }`. Allowed values are `acknowledged`, `resolved` and `false_positive` (lowercase).
+3. **Action - Block alert** with body `{ "reason": "Blocked from Postman test" }`. A block is only allowed on an acknowledged alert.
+
+### Block rules
+`GET` and `PATCH /api/blockrules` are documented. `POST` and `DELETE` are not, so those requests may return `404` or `405`. Block rules are normally created by approving a block on an alert.
+
+### Common errors
+| Response | Cause |
+|---|---|
+| `401 Unauthorized` | Token missing or expired. Log in again. |
+| `404 NOT_FOUND` | A variable such as `{{alertId}}` is empty, or the endpoint doesn't exist. |
+| `400 VALIDATION_ERROR` | Missing or invalid body field. The message names it. |
+| `INVALID_STATUS_TRANSITION` | Acknowledge the alert before blocking it. |
