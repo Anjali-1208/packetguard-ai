@@ -92,3 +92,34 @@ td{padding:10px;border-bottom:1px solid #141e29;vertical-align:middle} tr:last-c
 @keyframes spin{to{transform:rotate(360deg)}}
 .login-form{max-width:400px;width:100%} .login-form h2{margin:0 0 16px;font-size:18px} .login-form button.primary{width:100%;margin-top:4px}
 .demo{margin-top:14px;padding-top:14px;border-top:1px dashed var(--line);display:flex;gap:10px;align-items:center;color:var(--dim);font-size:12px} .demo button{padding:4px 10px;font-size:12px}
+
+.google-divider {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin: 22px 0;
+  color: #8494a7;
+}
+
+.google-divider::before,
+.google-divider::after {
+  content: "";
+  flex: 1;
+  height: 1px;
+  background: #263442;
+}
+
+.google-btn {
+  width: 100%;
+  padding: 13px;
+  border: 1px solid #344454;
+  border-radius: 8px;
+  background: #ffffff;
+  color: #202124;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.google-btn:hover {
+  background: #e9eef5;
+}

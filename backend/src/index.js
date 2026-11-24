@@ -41,6 +41,7 @@ async function connectMongo() {
     catch (e) { console.warn(`[db] waiting for mongo (${i}): ${e.message}`); await new Promise((r) => setTimeout(r, 3000)); }
   }
 }
+console.log("[debug] Mongo URL:", config.mongoUrl);
 
 if (process.env.NODE_ENV !== "test") {
   server.listen(config.port, () => console.log(`[api] listening on :${config.port}`));
