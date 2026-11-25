@@ -5,12 +5,15 @@ import { Err } from "../components/ui.jsx";
 
 export default function Login() {
   const { login, register } = useAuth();
+
   const [mode, setMode] = useState("login");
+
   const [f, setF] = useState({
     name: "",
     email: "",
     password: ""
   });
+
   const [err, setErr] = useState("");
   const [busy, setBusy] = useState(false);
 
@@ -19,6 +22,7 @@ export default function Login() {
 
   const submit = async (e) => {
     e.preventDefault();
+
     setErr("");
     setBusy(true);
 
@@ -35,8 +39,9 @@ export default function Login() {
     }
   };
 
-  const fill = (email, password) =>
+  const fill = (email, password) => {
     setF({ ...f, email, password });
+  };
 
   const googleLogin = () => {
     window.location.href = "/api/auth/google";
@@ -46,10 +51,14 @@ export default function Login() {
     <div className="login">
       <div className="login-hero">
         <div className="radar">
-          <i /><i /><i />
+          <i />
+          <i />
+          <i />
         </div>
 
-        <h1>PacketGuard<span>AI</span></h1>
+        <h1>
+          PacketGuard<span>AI</span>
+        </h1>
 
         <p>
           Hybrid, explainable intrusion detection.
@@ -57,7 +66,10 @@ export default function Login() {
         </p>
       </div>
 
-      <form className="card login-form" onSubmit={submit}>
+      <form
+        className="card login-form"
+        onSubmit={submit}
+      >
         <h2>
           {mode === "login"
             ? "Sign in"
@@ -95,6 +107,7 @@ export default function Login() {
             onChange={set("password")}
             required
           />
+
           {mode === "register" && (
             <small>
               8+ characters with uppercase, lowercase
@@ -105,7 +118,10 @@ export default function Login() {
 
         <Err msg={err} />
 
-        <button className="primary" disabled={busy}>
+        <button
+          className="primary"
+          disabled={busy}
+        >
           {busy
             ? "Please wait..."
             : mode === "login"
@@ -117,7 +133,11 @@ export default function Login() {
           type="button"
           className="link-btn"
           onClick={() => {
-            setMode(mode === "login" ? "register" : "login");
+            setMode(
+              mode === "login"
+                ? "register"
+                : "login"
+            );
             setErr("");
           }}
         >
@@ -127,42 +147,46 @@ export default function Login() {
         </button>
 
         {mode === "login" && (
-          <>
-            <div className="demo">
-              <span>Demo accounts</span>
-
-              <button
-                type="button"
-                onClick={() =>
-                  fill("analyst@packetguard.local", "Analyst123")
-                }
-              >
-                Analyst
-              </button>
-
-              <button
-                type="button"
-                onClick={() =>
-                  fill("admin@packetguard.local", "Admin123")
-                }
-              >
-                Admin
-              </button>
-            </div>
-
-            <div className="google-divider">
-              <span>OR</span>
-            </div>
+          <div className="demo">
+            <span>Demo accounts</span>
 
             <button
               type="button"
-              className="google-btn"
-              onClick={googleLogin}
+              onClick={() =>
+                fill(
+                  "analyst@packetguard.local",
+                  "Analyst123"
+                )
+              }
             >
-              Continue with Google
+              Analyst
             </button>
-          </>
+
+            <button
+              type="button"
+              onClick={() =>
+                fill(
+                  "admin@packetguard.local",
+                  "Admin123"
+                )
+              }
+            >
+              Admin
+            </button>
+          </div>
         )}
+
+        <div className="google-divider">
+          <span>OR</span>
+        </div>
+
+        <button
+          type="button"
+          className="google-btn"
+          onClick={googleLogin}
+        >
+          Continue with Google
+        </button>
       </form>
     </div>
   );

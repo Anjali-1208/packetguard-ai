@@ -10,7 +10,7 @@ model User {
   name           String
   email          String    @unique
   googleId        String?   @unique
-  passwordHash   String
+  passwordHash    String?
   role           String    @default("ANALYST") // ANALYST | ADMIN
   status         String    @default("active")  // active | suspended
   failedAttempts Int       @default(0)
