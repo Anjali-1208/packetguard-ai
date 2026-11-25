@@ -111,7 +111,7 @@ services:
     image: packetguard/frontend:latest
     build: ./frontend
     <<: *restart
-    ports: ["3000:80"]
+    ports: ["3001:80"]
     depends_on: [backend]
 
 volumes:
